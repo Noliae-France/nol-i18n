@@ -1,6 +1,6 @@
 # nol.i18n
 
-Traductions et règles de pluriel, en pur [Nolc](https://noliae-nolc.s3.gra.io.cloud.ovh.net/nolc-latest-linux-x86_64.tar.gz), sans dépendance.
+Traductions et pluriels CLDR, en pur [Nolc](https://noliae-nolc.s3.gra.io.cloud.ovh.net/nolc-latest-linux-x86_64.tar.gz), sans dépendance.
 
 ## Installation
 

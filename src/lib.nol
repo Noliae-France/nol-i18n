@@ -1,12 +1,16 @@
-// nol.i18n — traductions et règles de pluriel, en pur Nolc.
+// nol.i18n — traductions et pluriels CLDR, en pur Nolc.
 //
-// Un catalogue associe une clé à sa traduction pour une langue donnée. La règle
-// de pluriel choisit la forme (singulier/pluriel) selon la quantité et la
-// langue (le français met au pluriel à partir de 2 ; l'anglais dès que n != 1).
+// Les catégories de pluriel suivent les règles cardinales du CLDR d'Unicode
+// (zero / one / two / few / many / other), et non des heuristiques maison :
+// chaque langue a sa propre logique (le russe et l'arabe en ont plusieurs).
+// Formatage de nombres par locale inclus. Monnaies et dates complètes (données
+// CLDR étendues) : feuille de route.
+
+// ---- Catalogue de traductions ----
 
 record Catalogue {
     langue: Text,
-    messages: Map<Text>  // cle -> traduction
+    messages: Map<Text>
 }
 
 fn catalogue_neuf(langue: Text) -> Catalogue {
@@ -18,71 +22,231 @@ fn ajoute(cat: Catalogue, cle: Text, traduction: Text) {
     map_set(cat.messages, cle, traduction)
 }
 
-// Traduit une clé ; renvoie la clé elle-même si absente (repli visible).
+// Traduit une clé ; repli visible sur la clé si absente.
 fn traduit(cat: Catalogue, cle: Text) -> Text {
     return unwrap_or(map_get(cat.messages, cle), cle)
 }
 
-// Substitue « {n} » par la quantité dans une traduction.
 fn traduit_n(cat: Catalogue, cle: Text, n: Int) -> Text {
     return replace(traduit(cat, cle), "{n}", text(n))
 }
 
-// Forme plurielle attendue pour une quantité et une langue.
-// "un" = forme singulier, "autre" = forme plurielle.
-fn forme_plurielle(langue: Text, n: Int) -> Text {
-    if langue == "fr" {
-        // 0 et 1 -> singulier ; >= 2 -> pluriel.
+// ---- Pluriels CLDR (règles cardinales) ----
+
+// Catégorie de pluriel cardinal CLDR pour une langue et une quantité entière.
+// Renvoie "zero" | "one" | "two" | "few" | "many" | "other".
+fn cldr_cardinal(langue: Text, nombre: Int) -> Text {
+    var n = nombre
+    if n < 0 {
+        n = 0 - n
+    }
+    let n10 = n % 10
+    let n100 = n % 100
+
+    // Langues sans distinction de pluriel.
+    if langue == "ja" or langue == "zh" or langue == "ko" or langue == "vi" or langue == "th" or langue == "id" {
+        return "other"
+    }
+    // Famille « one pour 0 et 1 » (français, portugais).
+    if langue == "fr" or langue == "pt" or langue == "hy" {
         if n == 0 or n == 1 {
-            return "un"
+            return "one"
         }
-        return "autre"
+        return "other"
     }
-    // Par défaut (en, etc.) : singulier seulement si n == 1.
+    // Famille « one seulement pour 1 » (anglais, allemand, espagnol, italien…).
+    if langue == "en" or langue == "de" or langue == "es" or langue == "it"
+        or langue == "nl" or langue == "sv" or langue == "da" or langue == "nb"
+        or langue == "fi" or langue == "el" or langue == "hu" or langue == "tr" {
+        if n == 1 {
+            return "one"
+        }
+        return "other"
+    }
+    // Russe, ukrainien : one / few / many.
+    if langue == "ru" or langue == "uk" {
+        if n10 == 1 and n100 != 11 {
+            return "one"
+        }
+        if n10 >= 2 and n10 <= 4 and (n100 < 12 or n100 > 14) {
+            return "few"
+        }
+        return "many"
+    }
+    // Polonais : one / few / many.
+    if langue == "pl" {
+        if n == 1 {
+            return "one"
+        }
+        if n10 >= 2 and n10 <= 4 and (n100 < 12 or n100 > 14) {
+            return "few"
+        }
+        return "many"
+    }
+    // Tchèque, slovaque : one / few / other.
+    if langue == "cs" or langue == "sk" {
+        if n == 1 {
+            return "one"
+        }
+        if n >= 2 and n <= 4 {
+            return "few"
+        }
+        return "other"
+    }
+    // Arabe : zero / one / two / few / many / other.
+    if langue == "ar" {
+        if n == 0 {
+            return "zero"
+        }
+        if n == 1 {
+            return "one"
+        }
+        if n == 2 {
+            return "two"
+        }
+        if n100 >= 3 and n100 <= 10 {
+            return "few"
+        }
+        if n100 >= 11 and n100 <= 99 {
+            return "many"
+        }
+        return "other"
+    }
+    // Défaut : règle anglaise.
     if n == 1 {
-        return "un"
+        return "one"
     }
-    return "autre"
+    return "other"
 }
 
-// Choisit entre deux formes selon la quantité, et substitue « {n} ».
-fn pluralise(cat: Catalogue, singulier: Text, pluriel: Text, n: Int) -> Text {
+// Choisit la forme adaptée dans une table catégorie -> texte, selon la langue
+// et la quantité, et substitue « {n} ». Repli sur "other".
+fn pluralise(formes: Map<Text>, langue: Text, n: Int) -> Text {
+    let cat = cldr_cardinal(langue, n)
+    var f = unwrap_or(map_get(formes, cat), "")
+    if len(f) == 0 {
+        f = unwrap_or(map_get(formes, "other"), "")
+    }
+    return replace(f, "{n}", text(n))
+}
+
+// Raccourci deux formes (langues à pluriel binaire) : one -> singulier, sinon pluriel.
+fn pluralise2(langue: Text, singulier: Text, pluriel: Text, n: Int) -> Text {
     var choix = pluriel
-    if forme_plurielle(cat.langue, n) == "un" {
+    if cldr_cardinal(langue, n) == "one" {
         choix = singulier
     }
     return replace(choix, "{n}", text(n))
 }
 
+// ---- Formatage de nombres par locale ----
+
+fn separateur_milliers(langue: Text) -> Text {
+    if langue == "en" {
+        return ","
+    }
+    if langue == "de" {
+        return "."
+    }
+    // fr et défaut : espace.
+    return " "
+}
+
+// Formate un entier avec séparateur de milliers selon la locale.
+fn formate_entier(n: Int, langue: Text) -> Text {
+    let sep = separateur_milliers(langue)
+    var signe = ""
+    var v = n
+    if v < 0 {
+        signe = "-"
+        v = 0 - v
+    }
+    let chiffres = text(v)
+    var out = ""
+    var i = 0
+    let l = len(chiffres)
+    while i < l {
+        // Insère le séparateur tous les 3 chiffres depuis la droite.
+        if i > 0 and (l - i) % 3 == 0 {
+            out = out + sep
+        }
+        out = out + char_at(chiffres, i)
+        i += 1
+    }
+    return signe + out
+}
+
 // ============================ TESTS ============================
 
-fn cat_fr() -> Catalogue {
-    let c = catalogue_neuf("fr")
-    ajoute(c, "salut", "Bonjour")
-    ajoute(c, "articles", "{n} articles dans le panier")
-    return c
+fn deux_formes(un: Text, autre: Text) -> Map<Text> {
+    var m: Map<Text> = map_new()
+    map_set(m, "one", un)
+    map_set(m, "other", autre)
+    return m
 }
 
 fn test_traduction() {
-    assert(traduit(cat_fr(), "salut") == "Bonjour", "cle connue")
-    assert(traduit(cat_fr(), "inconnue") == "inconnue", "repli sur la cle")
-    assert(traduit_n(cat_fr(), "articles", 3) == "3 articles dans le panier", "substitution n")
+    let c = catalogue_neuf("fr")
+    ajoute(c, "salut", "Bonjour")
+    assert(traduit(c, "salut") == "Bonjour", "cle connue")
+    assert(traduit(c, "absent") == "absent", "repli")
+    assert(traduit_n(catalogue_avec("articles", "{n} articles"), "articles", 3) == "3 articles", "substitution n")
 }
 
-fn test_pluriel_fr() {
-    assert(forme_plurielle("fr", 0) == "un", "fr 0 = singulier")
-    assert(forme_plurielle("fr", 1) == "un", "fr 1 = singulier")
-    assert(forme_plurielle("fr", 2) == "autre", "fr 2 = pluriel")
+fn catalogue_avec(cle: Text, val: Text) -> Catalogue {
+    let c = catalogue_neuf("fr")
+    ajoute(c, cle, val)
+    return c
 }
 
-fn test_pluriel_en() {
-    assert(forme_plurielle("en", 0) == "autre", "en 0 = pluriel")
-    assert(forme_plurielle("en", 1) == "un", "en 1 = singulier")
+fn test_cldr_fr() {
+    assert(cldr_cardinal("fr", 0) == "one", "fr 0 = one")
+    assert(cldr_cardinal("fr", 1) == "one", "fr 1 = one")
+    assert(cldr_cardinal("fr", 2) == "other", "fr 2 = other")
+}
+
+fn test_cldr_en() {
+    assert(cldr_cardinal("en", 1) == "one", "en 1 = one")
+    assert(cldr_cardinal("en", 0) == "other", "en 0 = other")
+    assert(cldr_cardinal("en", 2) == "other", "en 2 = other")
+}
+
+fn test_cldr_ru() {
+    assert(cldr_cardinal("ru", 1) == "one", "ru 1")
+    assert(cldr_cardinal("ru", 2) == "few", "ru 2")
+    assert(cldr_cardinal("ru", 5) == "many", "ru 5")
+    assert(cldr_cardinal("ru", 11) == "many", "ru 11 = many")
+    assert(cldr_cardinal("ru", 21) == "one", "ru 21 = one")
+    assert(cldr_cardinal("ru", 22) == "few", "ru 22 = few")
+}
+
+fn test_cldr_ar() {
+    assert(cldr_cardinal("ar", 0) == "zero", "ar 0")
+    assert(cldr_cardinal("ar", 1) == "one", "ar 1")
+    assert(cldr_cardinal("ar", 2) == "two", "ar 2")
+    assert(cldr_cardinal("ar", 3) == "few", "ar 3")
+    assert(cldr_cardinal("ar", 11) == "many", "ar 11")
+    assert(cldr_cardinal("ar", 100) == "other", "ar 100")
+}
+
+fn test_cldr_pl() {
+    assert(cldr_cardinal("pl", 1) == "one", "pl 1")
+    assert(cldr_cardinal("pl", 2) == "few", "pl 2")
+    assert(cldr_cardinal("pl", 5) == "many", "pl 5")
+    assert(cldr_cardinal("pl", 12) == "many", "pl 12")
+    assert(cldr_cardinal("pl", 22) == "few", "pl 22")
 }
 
 fn test_pluralise() {
-    let c = cat_fr()
-    assert(pluralise(c, "{n} chat", "{n} chats", 1) == "1 chat", "singulier fr")
-    assert(pluralise(c, "{n} chat", "{n} chats", 3) == "3 chats", "pluriel fr")
-    assert(pluralise(c, "{n} chat", "{n} chats", 0) == "0 chat", "zero singulier fr")
+    assert(pluralise2("fr", "{n} chat", "{n} chats", 1) == "1 chat", "fr singulier")
+    assert(pluralise2("fr", "{n} chat", "{n} chats", 2) == "2 chats", "fr pluriel")
+    assert(pluralise(deux_formes("{n} item", "{n} items"), "en", 1) == "1 item", "en one")
+    assert(pluralise(deux_formes("{n} item", "{n} items"), "en", 5) == "5 items", "en other")
+}
+
+fn test_formate_entier() {
+    assert(formate_entier(1234567, "en") == "1,234,567", "en virgules")
+    assert(formate_entier(1234567, "de") == "1.234.567", "de points")
+    assert(formate_entier(1234567, "fr") == "1 234 567", "fr espaces")
+    assert(formate_entier(-42, "en") == "-42", "negatif court")
 }

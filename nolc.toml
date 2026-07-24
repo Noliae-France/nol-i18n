@@ -1,9 +1,9 @@
 [projet]
 nom = "nol-i18n"
-version = "0.1.0"
+version = "0.2.0"
 entree = "src/lib.nol"
 auteur = "daliranas <bastien@languedoc.ovh>"
 licence = "MIT"
-description = "Traductions et règles de pluriel, en pur Nolc."
+description = "Traductions et pluriels CLDR (zero/one/two/few/many/other) + formatage de nombres par locale, en pur Nolc."
 
 [dependances]
