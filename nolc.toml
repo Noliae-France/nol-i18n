@@ -4,6 +4,6 @@ version = "0.1.0"
 entree = "src/lib.nol"
 auteur = "daliranas <bastien@languedoc.ovh>"
 licence = "MIT"
-description = "Traductions et regles de pluriel, en pur Nolc."
+description = "Traductions et règles de pluriel, en pur Nolc."
 
 [dependances]
