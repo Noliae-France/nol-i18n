@@ -1,0 +1,88 @@
+// nol.i18n — traductions et règles de pluriel, en pur Nolc.
+//
+// Un catalogue associe une clé à sa traduction pour une langue donnée. La règle
+// de pluriel choisit la forme (singulier/pluriel) selon la quantité et la
+// langue (le français met au pluriel à partir de 2 ; l'anglais dès que n != 1).
+
+record Catalogue {
+    langue: Text,
+    messages: Map<Text>  // cle -> traduction
+}
+
+fn catalogue_neuf(langue: Text) -> Catalogue {
+    var m: Map<Text> = map_new()
+    return Catalogue { langue: langue, messages: m }
+}
+
+fn ajoute(cat: Catalogue, cle: Text, traduction: Text) {
+    map_set(cat.messages, cle, traduction)
+}
+
+// Traduit une clé ; renvoie la clé elle-même si absente (repli visible).
+fn traduit(cat: Catalogue, cle: Text) -> Text {
+    return unwrap_or(map_get(cat.messages, cle), cle)
+}
+
+// Substitue « {n} » par la quantité dans une traduction.
+fn traduit_n(cat: Catalogue, cle: Text, n: Int) -> Text {
+    return replace(traduit(cat, cle), "{n}", text(n))
+}
+
+// Forme plurielle attendue pour une quantité et une langue.
+// "un" = forme singulier, "autre" = forme plurielle.
+fn forme_plurielle(langue: Text, n: Int) -> Text {
+    if langue == "fr" {
+        // 0 et 1 -> singulier ; >= 2 -> pluriel.
+        if n == 0 or n == 1 {
+            return "un"
+        }
+        return "autre"
+    }
+    // Par défaut (en, etc.) : singulier seulement si n == 1.
+    if n == 1 {
+        return "un"
+    }
+    return "autre"
+}
+
+// Choisit entre deux formes selon la quantité, et substitue « {n} ».
+fn pluralise(cat: Catalogue, singulier: Text, pluriel: Text, n: Int) -> Text {
+    var choix = pluriel
+    if forme_plurielle(cat.langue, n) == "un" {
+        choix = singulier
+    }
+    return replace(choix, "{n}", text(n))
+}
+
+// ============================ TESTS ============================
+
+fn cat_fr() -> Catalogue {
+    let c = catalogue_neuf("fr")
+    ajoute(c, "salut", "Bonjour")
+    ajoute(c, "articles", "{n} articles dans le panier")
+    return c
+}
+
+fn test_traduction() {
+    assert(traduit(cat_fr(), "salut") == "Bonjour", "cle connue")
+    assert(traduit(cat_fr(), "inconnue") == "inconnue", "repli sur la cle")
+    assert(traduit_n(cat_fr(), "articles", 3) == "3 articles dans le panier", "substitution n")
+}
+
+fn test_pluriel_fr() {
+    assert(forme_plurielle("fr", 0) == "un", "fr 0 = singulier")
+    assert(forme_plurielle("fr", 1) == "un", "fr 1 = singulier")
+    assert(forme_plurielle("fr", 2) == "autre", "fr 2 = pluriel")
+}
+
+fn test_pluriel_en() {
+    assert(forme_plurielle("en", 0) == "autre", "en 0 = pluriel")
+    assert(forme_plurielle("en", 1) == "un", "en 1 = singulier")
+}
+
+fn test_pluralise() {
+    let c = cat_fr()
+    assert(pluralise(c, "{n} chat", "{n} chats", 1) == "1 chat", "singulier fr")
+    assert(pluralise(c, "{n} chat", "{n} chats", 3) == "3 chats", "pluriel fr")
+    assert(pluralise(c, "{n} chat", "{n} chats", 0) == "0 chat", "zero singulier fr")
+}
